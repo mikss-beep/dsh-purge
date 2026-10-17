@@ -1,3 +1,45 @@
+# 1.1.72
+
+## 中文
+
+- 版本 **1.1.72**。适配 **DSH 桌面 0.2.1-rc.2**（上一版 1.1.71 停在 0.2.0-rc.2）。
+- **#40** 0.2.1 的 `system-prompt` 退出段多了 `requiredContexts` 过滤（`contexts: ... ? transformed.contexts.filter((entry) => requiredContexts.has(entry.name)) : ...`）。旧 pattern 只认 `? [] :`，全部命中不了 → `complete` 预设会把注入整段吞掉。新增 0.2.1 专用 pattern 与替换常量，保留 `requiredContexts` 语义。
+- **#32 / #53** Web 面自称文案在 0.2.1 搬到了新包 `dsh-harness-dev-context/lib/index.js`，且从单行 `... at ${webUrl}.` 改成 `WEB_SURFACE_PROMPT` 模板串 + `LEGACY_WEB_SURFACE.prefix/suffix`。只打 `web-app-lib` 一条都命中不了，模型仍自称「DeepSeek Harness Web GUI」。新增 `harness-dev-context` 目标并补齐三条 pattern（含每轮注入的 URL runtime context 行）。旧目标保留供老版本命中。
+- **#26** 0.2.1 重排了 `minimal` 预设：`persona` 之后是 `tool-fs`（带 `read/write/edit` 开关），不再是 `persistent-shell`，插入 `agent-instructions` 的 pattern 因此永远不命中 → 极简模式缺 `agent-instructions`，注入进不去（「standard 能用、minimal 不能用」）。按 0.2.1 真实邻居补一条 pattern。
+- **#57** responses 通路漏打：`openai-responses-shared.js` 里变量是 `instructionRole`（不是 `role`）、条件写作 `compat?.supportsDeveloperRole !== false`，旧 pattern 两头都不对 → responses 仍把 `developer` 发给第三方网关（被静默丢弃 = 注入到不了模型）。补正确 pattern，白名单只留 `api.openai.com` / `azure.com`。
+- **#74** 0.2.1 把 `buildRequest` 拆成 `prepareRequest` + `buildRequest`，`claimed` 与 `assembly` 两行不再相邻，旧 pattern 在干净宿主上永远不命中。补 0.2.1 两条 pattern（原始形态 + 已被 #87 处理过的形态）并补标记使其幂等。
+- **#77** 0.2.1 把 `this.revised.clear();` 包成 `if (this.revised.size > 0) this.revised.clear();`，旧 pattern 差一行 → 回退标记到达时不会立刻从当前对话拿掉已发送的消息。补 0.2.1 变体。
+- **#87** 第 1 条 pattern 落在 0.2.1 已不存在的 `const system` / `buildRequest(turn, step, ...)` 锚点上（现为 `let renderedPrompt` / `prepareRequest(turn, step, signal)`）。该动作已由本补丁第 3 条完成、标记也在，故保留为历史锚并加注释说明，不再误判为失效补丁。
+- `package.json`：`dshTarget` 更新为 **0.2.1-rc.2**；客户端 `inject` 去掉 0.2.1 已不存在的 `@deepseek-ai/dsh-client-runtime`（`dsh-client-ui-slots` 仍在用，保留）。
+- **修复 `{{cwd}}` 报错**：0.2.1 只注册 `provider` / `model` 两个提示词变量（旧版还有 `cwd`），`dsh-system-prompt` 遇到未注册变量会抛 `unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix"`，**整次提示词组装失败**。两处来源都已修：
+  - `cordis.patch.yml` 不再写带 `cwd` 变量的 `personaSuffix`（那是 DSH 自己的 config，不经过插件的转义）。
+  - `lib/identity.js` 的 `overlayOfficialIdentity()` 改为经 `cwdOnlySuffix()` 输出；`escapeDshInterpolation()` 只在变量确实可用时才保留 `{{cwd}}`。
+  - `lib/index.js` 新增 `registerCwdVariable()`：只在能拿到 `dsh-working-directory` 服务时补注册 `cwd`（拿不到就留空，避免用 `process.cwd()` 显示错误目录）；注册成功则原句照旧。工作目录本身由 DSH 原生的 `Current working directory: ...` 上下文提供，信息不会丢。
+- 桌面壳目标（`desktop-shell` → `resources/app/lib/main.js`）与 `app.asar` 解包路径经实测可用；`#45/#46/#83/#84/#82` 均已正确落盘，未改动。
+- **修复 Apply 后重启崩溃（`host exited with 1: fatal load failure` / ENOENT rename …copytmp）**：升级与重启时，前台 Apply 的 host 和启动自愈新起的 host 会**同时**写同一份备份（如 `dsh.cmd.dsh-purge.bak`），`atomicCopyFile` 的 tmp 名带 pid，Windows 上 rename 到被占用的目标会抛 `ENOENT/EPERM`，而宿主把这条错误当 **fatal load failure 直接退出**（实测 crash 日志两条：第一条报 ENOENT，第二条是 host 非 0 退出被外壳判为 `host stopped`）。
+  - `atomicCopyFile` / `atomicWriteSync` 改为**短重试 + 每次换 tmp 名**；若目标已存在且内容与源一致，视为成功（另一端已写好），不再抛。
+  - 这属于**幂等备份**语义：备份内容一致就是达成目标，不该因为「谁先写完」而让宿主崩掉。
+
+## English
+
+- **1.1.72**. Targets desktop **DSH 0.2.1-rc.2** (1.1.71 stopped at 0.2.0-rc.2).
+- **#40** 0.2.1 added a `requiredContexts` filter to the `system-prompt` exit block, so every old pattern missed and a `complete` preset swallowed the inject. Added a 0.2.1-specific pattern plus replacement that preserves `requiredContexts`.
+- **#32 / #53** The web-surface wording moved to the new package `dsh-harness-dev-context/lib/index.js` and is now a `WEB_SURFACE_PROMPT` template literal plus `LEGACY_WEB_SURFACE.prefix/suffix` instead of one `... at ${webUrl}.` line. Targeting `web-app-lib` alone missed every anchor, so the model still called itself "DeepSeek Harness Web GUI". Added the `harness-dev-context` target and three patterns, including the per-turn URL runtime-context line. The old target is kept for older builds.
+- **#26** 0.2.1 reordered the `minimal` preset: `tool-fs` now follows `persona` instead of `persistent-shell`, so the `agent-instructions` insert never matched and minimal mode had no `agent-instructions` for the inject to land in. Added a pattern matching the real 0.2.1 neighbour.
+- **#57** The responses path was never patched: `openai-responses-shared.js` uses `instructionRole` (not `role`) with `compat?.supportsDeveloperRole !== false`. Both halves were wrong, so the responses path still sent `developer` to third-party gateways, which drop it silently and never see the inject. Added the correct pattern; the allowlist stays `api.openai.com` / `azure.com`.
+- **#74** 0.2.1 split `buildRequest` into `prepareRequest` + `buildRequest`, so the two anchor lines are no longer adjacent and the old pattern could never match a clean host. Added both 0.2.1 forms and a marker so it stays idempotent.
+- **#77** 0.2.1 wrapped `this.revised.clear();` as `if (this.revised.size > 0) this.revised.clear();`, one line off, so a rewind marker did not immediately drop already-sent messages. Added the 0.2.1 variant.
+- **#87** Replacement 1 anchors on `const system` / `buildRequest(turn, step, ...)`, neither of which exists in 0.2.1 (`let renderedPrompt` / `prepareRequest(turn, step, signal)`). The action is already done by replacement 3 and the marker is present, so it is kept as a historical anchor with a comment instead of being dropped.
+- `package.json`: `dshTarget` is now **0.2.1-rc.2**; the client `inject` list drops `@deepseek-ai/dsh-client-runtime`, which no longer exists in 0.2.1 (`dsh-client-ui-slots` is still shipped and stays).
+- **Fixed the `{{cwd}}` crash**: 0.2.1 registers only `provider` / `model` as prompt variables (older builds also had `cwd`), so `dsh-system-prompt` throws `unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix"` and the **entire prompt assembly fails**. Both sources are fixed:
+  - `cordis.patch.yml` no longer sets a `personaSuffix` containing the `cwd` variable — that is DSH's own config and never passes through the plugin's escaping.
+  - `overlayOfficialIdentity()` in `lib/identity.js` now emits through `cwdOnlySuffix()`, and `escapeDshInterpolation()` preserves `{{cwd}}` only when the variable is actually available.
+  - `lib/index.js` gained `registerCwdVariable()`, which registers `cwd` only when the `dsh-working-directory` service is reachable (otherwise it stays empty, rather than showing a wrong directory from `process.cwd()`); when registration succeeds the original line is unchanged. The working directory itself still reaches the model through DSH's native `Current working directory: ...` context, so no information is lost.
+- The desktop shell target (`desktop-shell` → `resources/app/lib/main.js`) and the `app.asar` extraction path were verified working; `#45/#46/#83/#84/#82` were already applied correctly and are unchanged.
+- **Fixed the post-Apply restart crash (`host exited with 1: fatal load failure` / ENOENT rename …copytmp)**: during upgrade and restart, the foreground Apply host and the self-healing host started by the restart **both** write the same backup (e.g. `dsh.cmd.dsh-purge.bak`). `atomicCopyFile` builds its temp name from the pid, and on Windows renaming onto a target that is briefly held throws `ENOENT/EPERM` — which the host treats as a **fatal load failure and exits** (two crash logs: the first reports ENOENT, the second is the shell flagging the non-zero exit as `host stopped`).
+  - `atomicCopyFile` / `atomicWriteSync` now **retry briefly with a fresh temp name**; if the destination already exists with byte-identical content, that counts as success (the other writer already produced it) instead of throwing.
+  - This is the correct semantics for an idempotent backup: identical bytes means the goal is met, and "who finished first" must not be allowed to take the host down.
+
 # 1.1.71
 
 ## 中文

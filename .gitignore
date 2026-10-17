@@ -32,3 +32,13 @@ default-prompt-inject.md
 /official-harness-payload.7z
 *.asar
 *.asar.bak
+
+# IDE 配置
+.idea/
+.vscode/
+
+# 本机清理/诊断时留下的临时脚本与备份
+_host-cleanup-backup/
+_cleanup-*.mjs
+_*test*.mjs
+_extract-ps1.mjs

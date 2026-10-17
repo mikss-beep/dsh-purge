@@ -28,7 +28,13 @@
   config:
     includeHarnessIdentity: false
     personaPrefix: ""
-    personaSuffix: Your working directory is {{cwd}}.
+    # 不要在这里配 persona 后缀。
+    # 这是 DSH 自己的 config，不经过插件的 escapeDshInterpolation：
+    # 0.2.1 只注册 provider / model 两个提示词变量，写 cwd 变量会让
+    # dsh-system-prompt 抛 unknown prompt variable 并让整次组装失败。
+    # 工作目录改由插件的 waterfall（identity.overlayOfficialIdentity）
+    # 在确认 cwd 变量可用后再补；DSH 原生 dsh-working-directory 也会给出
+    # `Current working directory: ...` 上下文，信息不会丢。
 
 - id: dsh-purge
   inject: [systemPrompt, tools]
